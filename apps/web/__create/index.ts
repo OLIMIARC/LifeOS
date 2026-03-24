@@ -17,7 +17,7 @@ import ws from 'ws';
 import NeonAdapter from './adapter';
 import { getHTMLForErrorPage } from './get-html-for-error-page';
 import { isAuthAction } from './is-auth-action';
-import { API_BASENAME, api } from './route-builder';
+import { API_BASENAME, api, registerRoutes } from './route-builder';
 neonConfig.webSocketConstructor = ws;
 
 const als = new AsyncLocalStorage<{ requestId: string }>();
@@ -35,10 +35,17 @@ for (const method of ['log', 'info', 'warn', 'error', 'debug'] as const) {
   };
 }
 
-const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-const adapter = NeonAdapter(pool);
+let adapter: ReturnType<typeof NeonAdapter>;
+
+function getAdapter() {
+  if (!adapter) {
+    const pool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+    });
+    adapter = NeonAdapter(pool);
+  }
+  return adapter;
+}
 
 const app = new Hono();
 
@@ -148,7 +155,7 @@ if (process.env.AUTH_SECRET) {
               return null;
             }
 
-            // logic to verify if user exists
+            const adapter = getAdapter();
             const user = await adapter.getUserByEmail(email);
             if (!user) {
               return null;
@@ -195,15 +202,16 @@ if (process.env.AUTH_SECRET) {
             }
 
             // logic to verify if user exists
+            const adapter = getAdapter();
             const user = await adapter.getUserByEmail(email);
             if (!user) {
-              const newUser = await adapter.createUser({
+              const newUser = await getAdapter().createUser({
                 emailVerified: null,
                 email,
                 name: typeof name === 'string' && name.length > 0 ? name : undefined,
                 image: typeof image === 'string' && image.length > 0 ? image : undefined,
               });
-              await adapter.linkAccount({
+              await getAdapter().linkAccount({
                 extraData: {
                   password: await hash(password),
                 },
@@ -250,7 +258,12 @@ app.use('/api/auth/*', async (c, next) => {
 });
 app.route(API_BASENAME, api);
 
-export default await createHonoServer({
-  app,
-  defaultLogger: false,
-});
+// We export the server startup as a promise that happens only when the module is fully loaded
+// and we ensure routes are registered first.
+export default await (async () => {
+  await registerRoutes();
+  return createHonoServer({
+    app,
+    defaultLogger: false,
+  });
+})();

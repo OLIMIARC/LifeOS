@@ -41,7 +41,9 @@ function getHonoPath(routePath: string): { name: string; pattern: string }[] {
 }
 
 // Register all routes
-async function registerRoutes() {
+export async function registerRoutes() {
+  if (api.routes.length > 0) return; // Already registered
+  
   console.log('REGISTERING ROUTES FROM GLOB...');
   
   // Clear existing routes (though in production this only runs once)
@@ -76,7 +78,5 @@ async function registerRoutes() {
   }
 }
 
-// Initial route registration
-await registerRoutes();
 
 export { api, API_BASENAME };
